@@ -1,0 +1,115 @@
+// Define microcontroller hardware pins (Adjust based on your wiring)
+const HOOK_SWITCH_PIN = Pin(NodeMCU.D1); // Low when handset lifted
+const PULSE_DIAL_PIN = Pin(NodeMCU.D2);  // Pulses low during dialing
+
+// Cellular Module Serial Configuration (Tx/Rx pins)
+Serial1.setup(115200, { tx: NodeMCU.D4, rx: NodeMCU.D5 });
+
+class MicrocontrollerRotaryCellPhone {
+  private pulseCount: number = 0;
+  private dialTimeout: number | null = null;
+  private dialedNumber: string = "";
+  private isOffHook: boolean = false;
+
+  constructor() {
+    this.initializePins();
+    this.initializeCellularModule();
+  }
+
+  // Set up internal pull-up resistors and hardware interrupts
+  private initializePins(): void {
+    // 1. Monitor Handset Hook Switch
+    pinMode(HOOK_SWITCH_PIN, 'input_pullup');
+    setWatch((e) => this.handleHookChange(e.state), HOOK_SWITCH_PIN, {
+      repeat: true,
+      edge: 'both',
+      debounce: 50
+    });
+
+    // 2. Monitor Rotary Wheel Pulse Signals
+    pinMode(PULSE_DIAL_PIN, 'input_pullup');
+    setWatch(() => this.handleDialPulse(), PULSE_DIAL_PIN, {
+      repeat: true,
+      edge: 'falling',
+      debounce: 10 // Filter out electrical switch bounce
+    });
+  }
+
+  // Initialize the cellular hardware board via Serial AT Commands
+  private initializeCellularModule(): void {
+    console.log("Initializing cellular module...");
+    setTimeout(() => {
+      Serial1.println("AT");         // Check communication
+      Serial1.println("AT+CMGF=1");  // Set SMS text mode
+    }, 2000);
+
+    // Read incoming cellular data (like incoming calls)
+    Serial1.on('data', (data: string) => {
+      if (data.includes("RING")) {
+        console.log("Incoming call detected! Ringing physical bell...");
+        this.triggerPhysicalBell(true);
+      }
+    });
+  }
+
+  // Handles lifting or hanging up the handset receiver
+  private handleHookChange(pinState: boolean): void {
+    this.isOffHook = !pinState; // Low/False pin usually means Off-Hook
+
+    if (this.isOffHook) {
+      console.log("Handset Lifted: Play dial tone, ready to call.");
+      this.triggerPhysicalBell(false);
+    } else {
+      console.log("Handset Hung Up: Hanging up cell network.");
+      Serial1.println("ATH"); // AT command to hang up call
+      this.dialedNumber = ""; 
+    }
+  }
+
+  // Increments pulses as the physical rotary dial spins back
+  private handleDialPulse(): void {
+    if (!this.isOffHook) return; // Ignore if handset is on the hook
+
+    this.pulseCount++;
+
+    // Reset timer. If dial stops moving for 300ms, the digit is finished.
+    if (this.dialTimeout) clearTimeout(this.dialTimeout);
+    
+    this.dialTimeout = setTimeout(() => {
+      this.processFinalDigit();
+    }, 300) as unknown as number;
+  }
+
+  // Registers the dialed number and places a call if it looks complete
+  private processFinalDigit(): void {
+    // Rotary logic: 10 pulses equals the digit '0'
+    let digit = this.pulseCount === 10 ? 0 : this.pulseCount;
+    this.dialedNumber += digit.toString();
+    console.log(`Digit registered: ${digit}. Full number: ${this.dialedNumber}`);
+    
+    this.pulseCount = 0; // Reset pulse tracker for next digit
+
+    // Example trigger: Place call immediately if number hits standard US length
+    if (this.dialedNumber.length === 10) {
+      this.placeCellularCall(this.dialedNumber);
+    }
+  }
+
+  // Sends the outgoing call command to the cellular module
+  private placeCellularCall(phoneNumber: string): void {
+    console.log(`Connecting to network: Dialing ${phoneNumber}...`);
+    Serial1.println(`ATD${phoneNumber};`); // AT command to dial a number
+  }
+
+  // Placeholder to activate a motor or relay to ring the mechanical bells
+  private triggerPhysicalBell(enable: boolean): void {
+    if (enable) {
+      console.log("[Hardware] Activating high-voltage ringer circuit...");
+    } else {
+      console.log("[Hardware] Silencing bells.");
+    }
+  }
+}
+
+// Instantiate the phone software loop
+const myRotaryCell = new MicrocontrollerRotaryCellPhone();
