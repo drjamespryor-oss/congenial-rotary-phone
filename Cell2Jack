@@ -1,0 +1,98 @@
+// First, install dependencies: npm install serialport @types/serialport
+
+import { SerialPort } from 'serialport';
+import { ReadlineParser } from '@serialport/parser-readline';
+
+// Define the core communication contract
+interface IRotaryCellBridge {
+  portPath: string;
+  baudRate: number;
+  connect(): void;
+  disconnect(): void;
+}
+
+// Represent the states of the telephone system
+type PhoneState = 'IDLE' | 'RINGING' | 'OFF_HOOK' | 'DIALING';
+
+class RotaryPhoneCellBridge implements IRotaryCellBridge {
+  public portPath: string;
+  public baudRate: number;
+  private port: SerialPort | null = null;
+  private parser: ReadlineParser | null = null;
+  private currentState: PhoneState = 'IDLE';
+
+  constructor(portPath: string, baudRate: number = 9600) {
+    this.portPath = portPath;
+    this.baudRate = baudRate;
+  }
+
+  // Establishes connection to the Bluetooth/Cellular adapter hardware
+  public connect(): void {
+    console.log(`Connecting to phone adapter on ${this.portPath}...`);
+    
+    this.port = new SerialPort({
+      path: this.portPath,
+      baudRate: this.baudRate,
+    });
+
+    this.parser = this.port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+    
+    this.initializeListeners();
+  }
+
+  // Closes the hardware stream
+  public disconnect(): void {
+    if (this.port && this.port.isOpen) {
+      this.port.close(() => console.log('Disconnected from adapter.'));
+    }
+  }
+
+  // Sets up data streams and hardware interrupts
+  private initializeListeners(): void {
+    if (!this.parser) return;
+
+    this.parser.on('data', (data: string) => {
+      this.handleIncomingHardwareSignal(data.trim());
+    });
+
+    this.port?.on('error', (err: Error) => {
+      console.error('Hardware Error:', err.message);
+    });
+  }
+
+  // Parses raw signals (Pulse dialing, hook states) coming from the phone
+  private handleIncomingHardwareSignal(signal: string): void {
+    console.log(`[Hardware Signal Received]: ${signal}`);
+
+    // Example logic handling physical pulse-dial or hook actions
+    if (signal === 'HOOK_OFF') {
+      this.currentState = 'OFF_HOOK';
+      console.log('Handset lifted. Ready to route audio to cell phone.');
+    } else if (signal === 'HOOK_ON') {
+      this.currentState = 'IDLE';
+      console.log('Handset hung up. Terminating cell call.');
+      this.sendCellularCommand('HANGUP');
+    } else if (signal.startsWith('DIAL_PULSE_')) {
+      const digit = signal.split('_')[2];
+      console.log(`Rotary wheel registered digit: ${digit}`);
+    }
+  }
+
+  // Sends AT commands or API payloads to control the paired smartphone
+  private sendCellularCommand(command: string): void {
+    if (!this.port || !this.port.isOpen) {
+      console.error('Cannot send command. Device offline.');
+      return;
+    }
+    
+    // Simulating sending standard Bluetooth Hands-Free Profile (HFP) or AT command strings
+    this.port.write(`${command}\r`, (err) => {
+      if (err) console.error('Write error:', err.message);
+    });
+  }
+}
+
+// Example Initialization
+// Replace '/dev/ttyUSB0' with your actual Bluetooth serial port mapping
+const adapterBridge = new RotaryPhoneCellBridge('/dev/ttyUSB0');
+adapterBridge.connect();
