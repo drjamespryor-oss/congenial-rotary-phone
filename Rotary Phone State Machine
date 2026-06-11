@@ -1,0 +1,110 @@
+// 1. Define the explicit states of the phone
+type PhoneState = 'IDLE' | 'DIAL_TONE' | 'DIALING' | 'CONNECTED' | 'BUSY';
+
+// 2. Define the allowed transition triggers (events)
+type PhoneEvent = 
+  | { type: 'LIFT_RECEIVER' }
+  | { type: 'REPLACE_RECEIVER' }
+  | { type: 'DIAL_DIGIT'; digit: number }
+  | { type: 'CALL_CONNECTED' }
+  | { type: 'LINE_BUSY' };
+
+// 3. Define the State Machine Class
+class RotaryPhoneStateMachine {
+  private _state: PhoneState = 'IDLE';
+  private dialedDigits: number[] = [];
+  private readonly targetLength: number = 7; // Standard local number length
+
+  public get state(): PhoneState {
+    return this._state;
+  }
+
+  public get numberDialed(): string {
+    return this.dialedDigits.join('');
+  }
+
+  // Pure transition matrix logic
+  public transition(event: PhoneEvent): void {
+    switch (this._state) {
+      case 'IDLE':
+        if (event.type === 'LIFT_RECEIVER') {
+          this._state = 'DIAL_TONE';
+          this.dialedDigits = [];
+          console.log("☎️ Receiver lifted. Dial tone humming...");
+        }
+        break;
+
+      case 'DIAL_TONE':
+        if (event.type === 'DIAL_DIGIT') {
+          this._state = 'DIALING';
+          this.processDigit(event.digit);
+        } else if (event.type === 'REPLACE_RECEIVER') {
+          this._state = 'IDLE';
+          console.log("🤫 Receiver hung up.");
+        }
+        break;
+
+      case 'DIALING':
+        if (event.type === 'DIAL_DIGIT') {
+          this.processDigit(event.digit);
+        } else if (event.type === 'CALL_CONNECTED') {
+          this._state = 'CONNECTED';
+          console.log("🎉 Call connected! Start talking.");
+        } else if (event.type === 'LINE_BUSY') {
+          this._state = 'BUSY';
+          console.log("🛑 Beep... Beep... Line is busy.");
+        } else if (event.type === 'REPLACE_RECEIVER') {
+          this._state = 'IDLE';
+          console.log("🤫 Call aborted. Receiver hung up.");
+        }
+        break;
+
+      case 'CONNECTED':
+      case 'BUSY':
+        if (event.type === 'REPLACE_RECEIVER') {
+          this._state = 'IDLE';
+          console.log("🤫 Call disconnected. Phone is idle.");
+        }
+        break;
+    }
+  }
+
+  private processDigit(digit: number): void {
+    if (digit < 0 || digit > 9) {
+      console.log(`❌ Invalid digit ${digit}. Rotary dials only support 0-9.`);
+      return;
+    }
+    this.dialedDigits.push(digit);
+    console.log(`⚙️ Whirrr... click! Dialed: ${digit} (Current sequence: ${this.numberDialed})`);
+
+    // Simulate auto-triggering connection when full number is reached
+    if (this.dialedDigits.length === this.targetLength) {
+      console.log("⚡ Number complete. Routing call...");
+      // Randomly simulate a busy network or a successful connection
+      const isSuccessful = Math.random() > 0.2; 
+      this.transition(isSuccessful ? { type: 'CALL_CONNECTED' } : { type: 'LINE_BUSY' });
+    }
+  }
+}
+
+// ==========================================
+// Simulation Execution
+// ==========================================
+const phone = new RotaryPhoneStateMachine();
+
+// Try dialing while idle (Should fail silently or be ignored)
+phone.transition({ type: 'DIAL_DIGIT', digit: 5 }); 
+
+// Correct flow
+phone.transition({ type: 'LIFT_RECEIVER' }); // Transitions to DIAL_TONE
+phone.transition({ type: 'DIAL_DIGIT', digit: 5 }); // Transitions to DIALING
+phone.transition({ type: 'DIAL_DIGIT', digit: 5 });
+phone.transition({ type: 'DIAL_DIGIT', digit: 5 });
+phone.transition({ type: 'DIAL_DIGIT', digit: 12 }); // Invalid input catch
+phone.transition({ type: 'DIAL_DIGIT', digit: 2 });
+phone.transition({ type: 'DIAL_DIGIT', digit: 4 });
+phone.transition({ type: 'DIAL_DIGIT', digit: 2 });
+phone.transition({ type: 'DIAL_DIGIT', digit: 1 }); // Hits 7 digits, triggers connection
+
+// Hang up when finished
+phone.transition({ type: 'REPLACE_RECEIVER' }); // Resets to IDLE
